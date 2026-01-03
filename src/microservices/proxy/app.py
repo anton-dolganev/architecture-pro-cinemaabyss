@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+from urllib.parse import urlencode
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,38 +54,50 @@ async def forward_request(
     query_params: Optional[Dict[str, Any]] = None
 ) -> Response:
     try:
+        # Собираем полный URL с query параметрами
         full_url = f"{target_url}{path_suffix}"
-
+        
+        # Получаем query параметры из запроса
+        request_query_params = dict(request.query_params)
+        if query_params:
+            request_query_params.update(query_params)
+        
+        # Добавляем query параметры к URL если они есть
+        if request_query_params:
+            query_string = urlencode(request_query_params)
+            full_url = f"{full_url}?{query_string}"
+        
+        logger.info(f"Proxy forwarding: {method} {full_url}")
+        
+        # Получаем тело запроса
         body = await request.body()
-
+        
+        # Копируем заголовки, исключая host
         headers = {}
         for key, value in request.headers.items():
             key_lower = key.lower()
             if key_lower not in ['host']:
                 headers[key] = value
-
+        
+        # Отключаем сжатие чтобы избежать проблем с Content-Length
         headers['Accept-Encoding'] = 'identity'
-
-        params = {}
-        if query_params:
-            params.update(query_params)
-
-        logger.info(f"Proxy: {method} {full_url}")
-
+        
+        # Выполняем запрос
         response = await client.request(
             method=method,
             url=full_url,
             headers=headers,
             content=body if body else None,
-            params=params
+            params={}  # Не передаем params здесь, т.к. они уже в URL
         )
-
+        
+        # Возвращаем ответ как есть
         return Response(
             content=response.content,
             status_code=response.status_code,
             headers=dict(response.headers)
         )
-
+        
     except httpx.TimeoutException:
         logger.error(f"Timeout to {target_url}")
         raise HTTPException(status_code=504, detail="Backend service timeout")
