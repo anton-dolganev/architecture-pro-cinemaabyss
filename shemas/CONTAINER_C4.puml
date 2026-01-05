@@ -1,0 +1,81 @@
+@startuml
+title Кинобездна (To-Be) Container Diagram
+
+top to bottom direction
+
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Component.puml
+
+Person(user, "Пользователь", "Смотрит фильмы через веб, мобильное приложение или Smart TV")
+Person(admin, "Администратор", "Сотрудник компании, управляет контентом и аналитикой")
+System(KinobezdnaSystem, "Кинобездна System", "Стриминговый агрегатор - целевая система")
+
+Container_Boundary(KinobezdnaSystem, "Кинобездна System (Kubernetes Cluster)") {
+  Container(WebApp, "Web Client", , "Веб-интерфейс для ноутбуков/ПК")
+  Container(MobileApp, "Mobile Client",, "Нативное мобильное приложение")
+  Container(TvApp, "TV Client", , "Приложение для телевизоров")
+
+  Container(ApiGateway, "API Gateway", , "Единая точка входа, маршрутизация, rate limiting")
+  Container(AuthService, "Сервис аутентификации", , "Аутентификация, авторизация (JWT), сессии")
+
+  Container(UserProfileService, "Сервис профилей", , "Управление профилями, избранным, настройками")
+  Container(SubscriptionService, "Сервис подписок", , "Управление подписками, тарифами, скидками")
+  Container(BillingService, "Сервис платежей", , "Прием платежей, интеграция с эквайрингом")
+  Container(MetadataService, "Сервис метаданных", , "Каталог фильмов, актеры, жанры, рейтинги")
+  Container(ContentService, "Сервис контента", , "Управление видеофайлами, стриминг-ссылки")
+  Container(RecommendationService, "Сервис рекомендаций", "Python/Go", "Генерация персональных рекомендаций")
+
+  Container(MessageBus, "Message Bus", "Apache Kafka", "Асинхронная коммуникация (события доменов)")
+  
+  ContainerDb(AuthDb, "База аутентификации", "PostgreSQL", "Учетные данные, токены, сессии")
+  ContainerDb(UserProfileDb, "База профилей", "PostgreSQL", "Профили, избранное, история просмотров")
+  ContainerDb(SubscriptionDb, "База подписок", "PostgreSQL", "Подписки, тарифы, промокоды")
+  ContainerDb(BillingDb, "База платежей", "PostgreSQL", "Транзакции, счета, платежные методы")
+  ContainerDb(MetadataDb, "База метаданных", "PostgreSQL", "Фильмы, сериалы, актеры, жанры, оценки")
+  ContainerDb(ContentDb, "База контента", "PostgreSQL", "Стриминг-ссылки, кодировки, доступность")
+  Container(RecommendationDb, "База рекомендаций", "PostgreSQL/Redis", "Векторы, модели, кеш рекомендаций")
+}
+
+System_Ext(PaymentProvider, "Платежный провайдер", "Внешняя система приема платежей (ЮKassa, Stripe)")
+System_Ext(ExternalStreamSource, "Внешний источник", "Сторонний стриминговый сервис или CDN")
+System_Ext(LoyaltySystem, "Сервис лояльности", "Внешняя система бонусных программ")
+System_Ext(AnalyticsSystem, "Система аналитики", "Внешняя BI-система (Yandex DataLens, Tableau)")
+
+Rel(user, WebApp, "Смотрит фильмы, ставит оценки", "HTTPS")
+Rel(user, MobileApp, "Смотрит фильмы, управляет подпиской", "HTTPS")
+Rel(user, TvApp, "Смотрит фильмы на большом экране", "HTTPS")
+Rel(admin, WebApp, "Управляет каталогом, смотрит аналитику", "HTTPS")
+
+Rel(WebApp, ApiGateway, "API вызовы", "REST/HTTPS")
+Rel(MobileApp, ApiGateway, "API вызовы", "REST/HTTPS")
+Rel(TvApp, ApiGateway, "API вызовы (упрощенный)", "REST/HTTPS")
+
+Rel(ApiGateway, AuthService, "Проверка токенов / логин", "gRPC")
+Rel(ApiGateway, UserProfileService, "Запрос/обновление профиля", "gRPC")
+Rel(ApiGateway, SubscriptionService, "Проверка/смена подписки", "gRPC")
+Rel(ApiGateway, MetadataService, "Получение каталога, оценок", "gRPC")
+Rel(ApiGateway, BillingService, "Инициирование платежа")
+Rel(ApiGateway, ContentService, "Получение ссылки для просмотра", "gRPC")
+Rel(ApiGateway, RecommendationService, "Получение персональной подборки", "HTTP/gRPC")
+
+Rel(AuthService, AuthDb, "Чтение/запись", "SQL")
+
+Rel(UserProfileService, UserProfileDb, "Чтение/запись", "SQL")
+Rel(SubscriptionService, SubscriptionDb, "Чтение/запись", "SQL")
+Rel(BillingService, BillingDb, "Чтение/запись", "SQL")
+Rel(MetadataService, MetadataDb, "Чтение/запись", "SQL")
+Rel(ContentService, ContentDb, "Чтение/запись", "SQL")
+Rel(RecommendationService, RecommendationDb, "Чтение/запись", "SQL")
+
+Rel(UserProfileService, MessageBus, "Публикует: User.Registered, Profile.Updated", "Kafka")
+Rel(MetadataService, MessageBus, "Публикует: Movie.Rated, Content.Added", "Kafka")
+Rel(SubscriptionService, MessageBus, "Публикует: Subscription.Purchased, Subscription.Expired", "Kafka")
+Rel(BillingService, MessageBus, "Публикует: Payment.Succeeded, Payment.Failed", "Kafka")
+
+Rel(RecommendationService, MessageBus, "Подписывается на: User.*, Movie.Rated", "Kafka Consumer")
+Rel(LoyaltySystem, MessageBus, "Подписывается на: Payment.Succeeded, Subscription.Purchased", "Kafka Consumer (External)")
+Rel(AnalyticsSystem, MessageBus, "Подписывается на: * (все события)", "Kafka Consumer (External)")
+
+Rel(BillingService, PaymentProvider, "Инициирование и проверка платежей", "HTTPS (REST)")
+Rel(ContentService, ExternalStreamSource, "Получение стриминг-ссылки/манифеста", "HTTPS (API)")
+Rel(ApiGateway, LoyaltySystem, "Проверка бонусов, статуса лояльности", "HTTPS (REST)")
+@enduml
